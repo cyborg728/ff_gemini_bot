@@ -31,6 +31,7 @@ python bot.py
 | `GEMINI_API_KEY`     | ключ из Google AI Studio                      |
 | `GEMINI_MODEL`       | модель Gemini (по умолчанию `gemini-2.5-flash`) |
 | `DB_PATH`            | путь к sqlite-файлу (по умолчанию `bot.db`)   |
+| `ALLOWED_USER_IDS`   | список Telegram user id через запятую/пробел. Пусто или не задано — доступ открыт всем. Свой id: @userinfobot |
 
 ## Команды
 

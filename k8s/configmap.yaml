@@ -6,3 +6,5 @@ metadata:
 data:
   GEMINI_MODEL: "gemini-2.5-flash"
   DB_PATH: "/data/bot.db"
+  # Список Telegram user id через запятую. Пусто = открыт всем.
+  ALLOWED_USER_IDS: ""

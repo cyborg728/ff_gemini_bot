@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 
 from dotenv import load_dotenv
 from telegram import Update
@@ -17,6 +18,16 @@ from db import Database
 from gemini_client import GeminiClient
 
 TELEGRAM_MESSAGE_LIMIT = 4096
+
+
+def _parse_allowed_ids(raw: str | None) -> frozenset[int] | None:
+    """None = всем разрешено; пустой frozenset = никому; иначе — явный список."""
+    if raw is None:
+        return None
+    tokens = [t for t in re.split(r"[\s,]+", raw) if t]
+    if not tokens:
+        return None
+    return frozenset(int(t) for t in tokens)
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -44,6 +55,28 @@ def _split_message(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> list[str]:
     return chunks
 
 
+async def _authorized(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    allowed: frozenset[int] | None = context.application.bot_data.get("allowed_user_ids")
+    if allowed is None:
+        return True
+    user = update.effective_user
+    user_id = user.id if user else None
+    if user_id is not None and user_id in allowed:
+        return True
+    logger.warning(
+        "Rejected update from unauthorized user_id=%s username=%s",
+        user_id,
+        user.username if user else None,
+    )
+    message = update.effective_message
+    if message is not None:
+        await message.reply_text(
+            "У тебя нет доступа к этому боту.\n"
+            f"Если это ошибка — попроси админа добавить твой ID: {user_id}."
+        )
+    return False
+
+
 async def _send_reply(update: Update, text: str) -> None:
     message = update.effective_message
     if message is None:
@@ -57,6 +90,8 @@ async def _send_reply(update: Update, text: str) -> None:
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _authorized(update, context):
+        return
     await update.effective_message.reply_text(
         "Привет! Я бот-прокси к Gemini. Пиши сообщение — я отвечу, "
         "помня весь наш текущий разговор.\n\n"
@@ -71,6 +106,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _authorized(update, context):
+        return
     chat_id = update.effective_chat.id
     db: Database = context.application.bot_data["db"]
     skipped = await db.reset_history(chat_id)
@@ -83,6 +120,9 @@ async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     if message is None or not message.text:
+        return
+
+    if not await _authorized(update, context):
         return
 
     chat_id = update.effective_chat.id
@@ -125,6 +165,7 @@ def main() -> None:
     gemini_api_key = os.environ["GEMINI_API_KEY"]
     gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
     db_path = os.environ.get("DB_PATH", "bot.db")
+    allowed_user_ids = _parse_allowed_ids(os.environ.get("ALLOWED_USER_IDS"))
 
     db = Database(db_path)
     gemini = GeminiClient(api_key=gemini_api_key, model=gemini_model)
@@ -137,6 +178,7 @@ def main() -> None:
     )
     application.bot_data["db"] = db
     application.bot_data["gemini"] = gemini
+    application.bot_data["allowed_user_ids"] = allowed_user_ids
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
@@ -144,6 +186,10 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_error_handler(error_handler)
 
+    if allowed_user_ids is None:
+        logger.warning("ALLOWED_USER_IDS is not set — bot is open to everyone")
+    else:
+        logger.info("Allowed user ids: %s", sorted(allowed_user_ids))
     logger.info("Starting bot with model=%s", gemini_model)
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
