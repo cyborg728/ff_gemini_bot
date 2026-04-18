@@ -2,6 +2,7 @@ import logging
 import os
 import re
 
+import telegramify_markdown
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.constants import ChatAction, ParseMode
@@ -81,7 +82,8 @@ async def _send_reply(update: Update, text: str) -> None:
     message = update.effective_message
     if message is None:
         return
-    for chunk in _split_message(text):
+    escaped = telegramify_markdown.markdownify(text)
+    for chunk in _split_message(escaped):
         try:
             await message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN_V2)
         except BadRequest as exc:

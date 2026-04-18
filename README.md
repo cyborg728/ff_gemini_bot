@@ -9,6 +9,7 @@
 
 - [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot) ≥ 22.7 (async, `concurrent_updates=True`)
 - [google-genai](https://github.com/googleapis/python-genai) ≥ 1.73.1 (новый унифицированный SDK, `client.aio` для async)
+- [telegramify-markdown](https://github.com/sudoskys/telegramify-markdown) ≥ 1.1.2 (конвертер стандартного Markdown в валидный Telegram MarkdownV2)
 - [python-dotenv](https://github.com/theskumar/python-dotenv) ≥ 1.2.2
 - SQLite (через стандартную библиотеку)
 
@@ -47,10 +48,12 @@ python bot.py
 
 ## Форматирование ответов
 
-Ответы отправляются с `parse_mode=MARKDOWN_V2`. Если Telegram отклоняет
-форматирование из-за битой разметки от модели — бот автоматически повторяет
-отправку без `parse_mode`. Длинные ответы (> 4096 символов) бьются по
-границам строк/пробелов.
+Gemini возвращает обычный Markdown, а Telegram хочет `MarkdownV2` со
+специфическим экранированием. Поэтому перед отправкой ответ прогоняется через
+`telegramify_markdown.markdownify()`, которое даёт валидный для Telegram
+MarkdownV2. Если Telegram всё-таки отклоняет сообщение — бот автоматически
+повторяет отправку без `parse_mode`. Длинные ответы (> 4096 символов) бьются
+по границам строк/пробелов.
 
 ## Docker-образ
 
@@ -73,6 +76,59 @@ Workflow [.github/workflows/docker.yml](.github/workflows/docker.yml) собир
 ```bash
 docker build -t ff-gemini-bot:dev .
 docker run --rm --env-file .env -v $PWD/data:/data ff-gemini-bot:dev
+```
+
+## Пересборка и обновление бота
+
+### GitHub Actions → GHCR (основной путь)
+
+```bash
+git add ...
+git commit -m "..."
+git push
+```
+
+Пуш запускает workflow `Build and push image`. После его завершения новый
+образ доступен по тегам `sha-<short>`, `<branch-name>` и (для дефолтной
+ветки) `latest`. Прогресс можно смотреть во вкладке **Actions** репозитория
+или через `gh run watch`.
+
+### Локальная пересборка
+
+```bash
+# Чистая пересборка без кеша
+docker build --no-cache -t ff-gemini-bot:dev .
+
+# Мультиарх, если планируешь пушить в GHCR вручную
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t ghcr.io/cyborg728/ff_gemini_bot:dev \
+  --push .
+```
+
+### Выкатить новый образ в k3s
+
+Если тег образа (`:latest`) не поменялся, Kubernetes не увидит изменений —
+нужно либо перейти на новый тег, либо форсировать рестарт:
+
+```bash
+# Вариант А. Форсировать рестарт пода (pullPolicy должен быть Always
+# или образ — с новым digest/тегом).
+kubectl -n ff-gemini-bot rollout restart deployment/ff-gemini-bot
+
+# Вариант Б. Переключиться на конкретный тег (рекомендуется —
+# воспроизводимо, без сюрпризов из-за кешей).
+kubectl -n ff-gemini-bot set image deployment/ff-gemini-bot \
+  bot=ghcr.io/cyborg728/ff_gemini_bot:sha-abc1234
+
+# Проверить статус выката
+kubectl -n ff-gemini-bot rollout status deployment/ff-gemini-bot
+```
+
+Если в репозитории изменился сам манифест (`k8s/*.yaml`) — применяй целиком:
+
+```bash
+kubectl apply -k k8s/
 ```
 
 ## Деплой в k3s
