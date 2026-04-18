@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ff-gemini-bot
+  namespace: ff-gemini-bot
+data:
+  GEMINI_MODEL: "gemini-2.5-flash"
+  DB_PATH: "/data/bot.db"

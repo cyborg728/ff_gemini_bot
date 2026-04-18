@@ -50,3 +50,66 @@ python bot.py
 форматирование из-за битой разметки от модели — бот автоматически повторяет
 отправку без `parse_mode`. Длинные ответы (> 4096 символов) бьются по
 границам строк/пробелов.
+
+## Docker-образ
+
+Workflow [.github/workflows/docker.yml](.github/workflows/docker.yml) собирает
+мультиарховый (`linux/amd64`, `linux/arm64`) образ и пушит его в
+`ghcr.io/<owner>/<repo>` при push в `main`/`master`/`claude/**`, на теги `v*`
+или вручную через `workflow_dispatch`. Теги:
+
+- `sha-<short>` — для каждого коммита,
+- имя ветки,
+- `latest` — только для дефолтной ветки,
+- сам семвер-тег для git-тегов `v*`.
+
+Правильный `packages: write` для `GITHUB_TOKEN` уже прописан в workflow.
+Если пакет в GHCR приватный, в кластере нужно подложить `imagePullSecret` —
+см. ниже.
+
+Локальная сборка:
+
+```bash
+docker build -t ff-gemini-bot:dev .
+docker run --rm --env-file .env -v $PWD/data:/data ff-gemini-bot:dev
+```
+
+## Деплой в k3s
+
+Манифесты лежат в [`k8s/`](k8s/) (plain YAML + `kustomization.yaml`).
+
+```bash
+# 1. Создать namespace и секрет с токенами (секрет намеренно НЕ в git)
+kubectl apply -f k8s/namespace.yaml
+kubectl -n ff-gemini-bot create secret generic ff-gemini-bot \
+  --from-literal=TELEGRAM_BOT_TOKEN=... \
+  --from-literal=GEMINI_API_KEY=...
+
+# 2. Если пакет в GHCR приватный — добавить pull-secret и сослать на него
+#    в deployment.yaml через spec.template.spec.imagePullSecrets.
+# kubectl -n ff-gemini-bot create secret docker-registry ghcr \
+#   --docker-server=ghcr.io \
+#   --docker-username=<github-user> \
+#   --docker-password=<PAT with read:packages>
+
+# 3. Применить остальное
+kubectl apply -k k8s/
+```
+
+Заметки для k3s:
+
+- PVC использует дефолтный SC k3s — `local-path`. Данные SQLite лежат в
+  `/data/bot.db` внутри пода.
+- `replicas: 1` + `strategy: Recreate` — Telegram long-polling не терпит
+  двух одновременных `getUpdates` на один токен, поэтому катим без перекрытия.
+- Образ указан как `ghcr.io/cyborg728/ff_gemini_bot:latest` —
+  поменяй тег/путь под свой репозиторий, если форкал.
+- Переменные `GEMINI_MODEL`, `DB_PATH` лежат в ConfigMap `ff-gemini-bot`;
+  секреты — в одноимённом Secret. Оба монтируются через `envFrom`.
+
+Быстрая проверка:
+
+```bash
+kubectl -n ff-gemini-bot get pods -w
+kubectl -n ff-gemini-bot logs -l app.kubernetes.io/name=ff-gemini-bot -f
+```

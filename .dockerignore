@@ -1,0 +1,15 @@
+.git
+.github
+.gitignore
+.env
+.env.*
+*.db
+*.db-journal
+__pycache__/
+*.pyc
+.venv/
+venv/
+.idea/
+.vscode/
+README.md
+k8s/
