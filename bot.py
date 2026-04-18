@@ -83,7 +83,7 @@ async def _send_reply(update: Update, text: str) -> None:
         return
     for chunk in _split_message(text):
         try:
-            await message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
+            await message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN_V2)
         except BadRequest as exc:
             logger.warning("Markdown parsing failed (%s); sending as plain text", exc)
             await message.reply_text(chunk)
