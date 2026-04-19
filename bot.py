@@ -18,8 +18,6 @@ from telegram.ext import (
 from db import Database
 from gemini_client import GeminiClient
 
-TELEGRAM_MESSAGE_LIMIT = 4096
-
 
 def _parse_allowed_ids(raw: str | None) -> frozenset[int] | None:
     """None = всем разрешено; пустой frozenset = никому; иначе — явный список."""
@@ -36,24 +34,6 @@ logging.basicConfig(
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
-
-
-def _split_message(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> list[str]:
-    if len(text) <= limit:
-        return [text]
-    chunks: list[str] = []
-    remaining = text
-    while len(remaining) > limit:
-        split_at = remaining.rfind("\n", 0, limit)
-        if split_at == -1:
-            split_at = remaining.rfind(" ", 0, limit)
-        if split_at == -1:
-            split_at = limit
-        chunks.append(remaining[:split_at])
-        remaining = remaining[split_at:].lstrip()
-    if remaining:
-        chunks.append(remaining)
-    return chunks
 
 
 async def _authorized(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -82,13 +62,34 @@ async def _send_reply(update: Update, text: str) -> None:
     message = update.effective_message
     if message is None:
         return
-    escaped = telegramify_markdown.markdownify(text)
-    for chunk in _split_message(escaped):
-        try:
-            await message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN_V2)
-        except BadRequest as exc:
-            logger.warning("Markdown parsing failed (%s); sending as plain text", exc)
-            await message.reply_text(chunk)
+    # telegramify() конвертирует обычный Markdown в валидный MarkdownV2
+    # и режет результат на сегменты, не ломая разметку: крупные блоки кода
+    # уходят как File, а обычный текст — как Text в пределах лимита Telegram.
+    segments = await telegramify_markdown.telegramify(text)
+    for seg in segments:
+        if isinstance(seg, telegramify_markdown.Text):
+            try:
+                await message.reply_text(seg.text, parse_mode=ParseMode.MARKDOWN_V2)
+            except BadRequest as exc:
+                logger.warning(
+                    "MarkdownV2 rejected (%s); sending as plain text", exc
+                )
+                await message.reply_text(seg.text)
+        elif isinstance(seg, telegramify_markdown.File):
+            await message.reply_document(
+                document=seg.file_data,
+                filename=seg.file_name,
+                caption=seg.caption_text or None,
+                parse_mode=ParseMode.MARKDOWN_V2 if seg.caption_text else None,
+            )
+        elif isinstance(seg, telegramify_markdown.Photo):
+            await message.reply_photo(
+                photo=seg.file_data,
+                caption=seg.caption_text or None,
+                parse_mode=ParseMode.MARKDOWN_V2 if seg.caption_text else None,
+            )
+        else:
+            logger.warning("Unknown telegramify segment type: %s", type(seg).__name__)
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
