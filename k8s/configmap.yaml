@@ -8,3 +8,6 @@ data:
   DB_PATH: "/data/bot.db"
   # Список Telegram user id через запятую. Пусто = открыт всем.
   ALLOWED_USER_IDS: ""
+  # System instruction для Gemini. Пусто = встроенный дефолт под Markdown
+  # Telegram-совместимого вида. "off" = совсем без системной инструкции.
+  GEMINI_SYSTEM_INSTRUCTION: ""

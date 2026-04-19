@@ -16,7 +16,7 @@ from telegram.ext import (
 )
 
 from db import Database
-from gemini_client import GeminiClient
+from gemini_client import DEFAULT_SYSTEM_INSTRUCTION, GeminiClient
 
 
 def _parse_allowed_ids(raw: str | None) -> frozenset[int] | None:
@@ -169,9 +169,22 @@ def main() -> None:
     gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
     db_path = os.environ.get("DB_PATH", "bot.db")
     allowed_user_ids = _parse_allowed_ids(os.environ.get("ALLOWED_USER_IDS"))
+    # Пусто/не задано — берём дефолтную инструкцию под Telegram-Markdown.
+    # Строка "off" (любой регистр) — отключает системную инструкцию совсем.
+    raw_instruction = os.environ.get("GEMINI_SYSTEM_INSTRUCTION")
+    if raw_instruction is None or raw_instruction.strip() == "":
+        system_instruction = DEFAULT_SYSTEM_INSTRUCTION
+    elif raw_instruction.strip().lower() == "off":
+        system_instruction = None
+    else:
+        system_instruction = raw_instruction
 
     db = Database(db_path)
-    gemini = GeminiClient(api_key=gemini_api_key, model=gemini_model)
+    gemini = GeminiClient(
+        api_key=gemini_api_key,
+        model=gemini_model,
+        system_instruction=system_instruction,
+    )
 
     application = (
         Application.builder()
@@ -193,7 +206,12 @@ def main() -> None:
         logger.warning("ALLOWED_USER_IDS is not set — bot is open to everyone")
     else:
         logger.info("Allowed user ids: %s", sorted(allowed_user_ids))
-    logger.info("Starting bot with model=%s", gemini_model)
+    logger.info(
+        "Starting bot with model=%s, system_instruction=%s",
+        gemini_model,
+        "custom" if system_instruction and system_instruction is not DEFAULT_SYSTEM_INSTRUCTION
+        else ("default" if system_instruction else "off"),
+    )
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
