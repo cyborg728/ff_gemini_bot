@@ -99,7 +99,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "Привет! Я бот-прокси к Gemini. Пиши сообщение — я отвечу, "
         "помня весь наш текущий разговор.\n\n"
         "Команды:\n"
-        "/new — начать новый диалог (старая история игнорируется)\n"
+        "/new — начать новый диалог (старая история удаляется)\n"
         "/set_api_key <ключ> — временно подменить Gemini API-ключ "
         "(только в памяти, до рестарта)\n"
         "/help — эта справка"
@@ -157,9 +157,9 @@ async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
     chat_id = update.effective_chat.id
     db: Database = context.application.bot_data["db"]
-    skipped = await db.reset_history(chat_id)
+    deleted = await db.clear_history(chat_id)
     await update.effective_message.reply_text(
-        f"История сброшена ({skipped} сообщ. помечено как skip). "
+        f"История очищена ({deleted} сообщ. удалено). "
         "Можно начинать новый диалог."
     )
 

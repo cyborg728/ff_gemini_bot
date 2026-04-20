@@ -25,14 +25,18 @@ class Database:
                     chat_id    INTEGER NOT NULL,
                     role       TEXT    NOT NULL CHECK (role IN ('user', 'model')),
                     content    TEXT    NOT NULL,
-                    skip       INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT    NOT NULL DEFAULT (datetime('now'))
                 )
                 """
             )
+            # Убираем легаси-колонку skip, если база создавалась до её удаления.
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
+            if "skip" in cols:
+                conn.execute("DROP INDEX IF EXISTS idx_messages_chat_skip_id")
+                conn.execute("ALTER TABLE messages DROP COLUMN skip")
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_messages_chat_skip_id "
-                "ON messages (chat_id, skip, id)"
+                "CREATE INDEX IF NOT EXISTS idx_messages_chat_id "
+                "ON messages (chat_id, id)"
             )
 
     def _add_message(self, chat_id: int, role: str, content: str) -> None:
@@ -46,16 +50,15 @@ class Database:
         with self._connect() as conn:
             cur = conn.execute(
                 "SELECT role, content FROM messages "
-                "WHERE chat_id = ? AND skip = 0 ORDER BY id ASC",
+                "WHERE chat_id = ? ORDER BY id ASC",
                 (chat_id,),
             )
             return cur.fetchall()
 
-    def _reset_history(self, chat_id: int) -> int:
+    def _clear_history(self, chat_id: int) -> int:
         with self._connect() as conn:
             cur = conn.execute(
-                "UPDATE messages SET skip = 1 "
-                "WHERE chat_id = ? AND skip = 0",
+                "DELETE FROM messages WHERE chat_id = ?",
                 (chat_id,),
             )
             return cur.rowcount
@@ -68,6 +71,6 @@ class Database:
         async with self._lock:
             return await asyncio.to_thread(self._get_history, chat_id)
 
-    async def reset_history(self, chat_id: int) -> int:
+    async def clear_history(self, chat_id: int) -> int:
         async with self._lock:
-            return await asyncio.to_thread(self._reset_history, chat_id)
+            return await asyncio.to_thread(self._clear_history, chat_id)
