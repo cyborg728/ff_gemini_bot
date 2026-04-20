@@ -7,7 +7,6 @@ class Database:
     def __init__(self, path: str):
         self.path = path
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self._lock = asyncio.Lock()
         self._init_schema()
 
     def _connect(self) -> sqlite3.Connection:
@@ -64,13 +63,10 @@ class Database:
             return cur.rowcount
 
     async def add_message(self, chat_id: int, role: str, content: str) -> None:
-        async with self._lock:
-            await asyncio.to_thread(self._add_message, chat_id, role, content)
+        await asyncio.to_thread(self._add_message, chat_id, role, content)
 
     async def get_history(self, chat_id: int) -> list[tuple[str, str]]:
-        async with self._lock:
-            return await asyncio.to_thread(self._get_history, chat_id)
+        return await asyncio.to_thread(self._get_history, chat_id)
 
     async def clear_history(self, chat_id: int) -> int:
-        async with self._lock:
-            return await asyncio.to_thread(self._clear_history, chat_id)
+        return await asyncio.to_thread(self._clear_history, chat_id)
