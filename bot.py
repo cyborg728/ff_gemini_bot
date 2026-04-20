@@ -100,12 +100,56 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "помня весь наш текущий разговор.\n\n"
         "Команды:\n"
         "/new — начать новый диалог (старая история игнорируется)\n"
+        "/set_api_key <ключ> — временно подменить Gemini API-ключ "
+        "(только в памяти, до рестарта)\n"
         "/help — эта справка"
     )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await start_command(update, context)
+
+
+async def set_api_key_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    if not await _authorized(update, context):
+        return
+    message = update.effective_message
+    if message is None:
+        return
+
+    args = context.args or []
+    if not args:
+        await message.reply_text(
+            "Использование: `/set_api_key <ключ>`\n"
+            "Ключ хранится только в памяти и слетит при рестарте бота.",
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+        return
+
+    new_key = args[0].strip()
+    if not new_key:
+        await message.reply_text("Ключ пустой.")
+        return
+
+    # Удаляем сообщение с ключом, чтобы оно не висело в истории Telegram.
+    try:
+        await message.delete()
+    except Exception:
+        logger.warning("Could not delete /set_api_key message", exc_info=True)
+
+    gemini: GeminiClient = context.application.bot_data["gemini"]
+    gemini.set_api_key(new_key)
+
+    logger.info(
+        "Gemini API key updated at runtime by user_id=%s",
+        update.effective_user.id if update.effective_user else None,
+    )
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="Ключ Gemini API обновлён (только в памяти до рестарта).",
+    )
 
 
 async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -199,6 +243,7 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("new", new_command))
+    application.add_handler(CommandHandler("set_api_key", set_api_key_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_error_handler(error_handler)
 

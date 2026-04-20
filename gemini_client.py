@@ -29,9 +29,14 @@ class GeminiClient:
         model: str,
         system_instruction: str | None = None,
     ):
+        self._api_key = api_key
         self._client = genai.Client(api_key=api_key)
         self._model = model
         self._system_instruction = system_instruction or None
+
+    def set_api_key(self, api_key: str) -> None:
+        self._api_key = api_key
+        self._client = genai.Client(api_key=api_key)
 
     @staticmethod
     def _build_contents(
