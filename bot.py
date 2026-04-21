@@ -102,6 +102,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "/new — начать новый диалог (старая история удаляется)\n"
         "/set_api_key <ключ> — временно подменить Gemini API-ключ "
         "(только в памяти, до рестарта)\n"
+        "/allow <user_id> — добавить пользователя в allowlist "
+        "(только в памяти, до рестарта)\n"
         "/help — эта справка"
     )
 
@@ -122,9 +124,8 @@ async def set_api_key_command(
     args = context.args or []
     if not args:
         await message.reply_text(
-            "Использование: `/set_api_key <ключ>`\n"
-            "Ключ хранится только в памяти и слетит при рестарте бота.",
-            parse_mode=ParseMode.MARKDOWN_V2,
+            "Использование: /set_api_key <ключ>\n"
+            "Ключ хранится только в памяти и слетит при рестарте бота."
         )
         return
 
@@ -150,6 +151,63 @@ async def set_api_key_command(
         chat_id=update.effective_chat.id,
         text="Ключ Gemini API обновлён (только в памяти до рестарта).",
     )
+
+
+async def allow_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _authorized(update, context):
+        return
+    message = update.effective_message
+    if message is None:
+        return
+
+    args = context.args or []
+    if not args:
+        await message.reply_text(
+            "Использование: /allow <user_id> [<user_id> ...]\n"
+            "Изменения живут только в памяти процесса — при рестарте возьмутся "
+            "ALLOWED_USER_IDS из окружения."
+        )
+        return
+
+    current: frozenset[int] | None = context.application.bot_data.get("allowed_user_ids")
+    if current is None:
+        await message.reply_text(
+            "Бот сейчас открыт всем (ALLOWED_USER_IDS не задан). "
+            "Добавлять пользователей рантайм-командой нет смысла — "
+            "сначала задай ALLOWED_USER_IDS в конфиге и перезапусти бота."
+        )
+        return
+
+    try:
+        new_ids = {int(a) for a in args}
+    except ValueError:
+        await message.reply_text("Все аргументы должны быть числовыми user_id.")
+        return
+
+    added = sorted(new_ids - current)
+    already = sorted(new_ids & current)
+    updated = frozenset(current | new_ids)
+    context.application.bot_data["allowed_user_ids"] = updated
+
+    logger.info(
+        "Allowlist updated at runtime by user_id=%s: added=%s already=%s total=%d",
+        update.effective_user.id if update.effective_user else None,
+        added,
+        already,
+        len(updated),
+    )
+
+    lines = []
+    if added:
+        lines.append("Добавлены: " + ", ".join(map(str, added)))
+    if already:
+        lines.append("Уже были: " + ", ".join(map(str, already)))
+    lines.append(f"Всего в allowlist: {len(updated)}.")
+    lines.append(
+        "Помни: изменения не сохраняются — при рестарте бот снова читает "
+        "ALLOWED_USER_IDS из окружения."
+    )
+    await message.reply_text("\n".join(lines))
 
 
 async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -244,6 +302,7 @@ def main() -> None:
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("new", new_command))
     application.add_handler(CommandHandler("set_api_key", set_api_key_command))
+    application.add_handler(CommandHandler("allow", allow_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_error_handler(error_handler)
 
