@@ -27,7 +27,10 @@ spec:
       containers:
         - name: bot
           image: ghcr.io/cyborg728/ff_gemini_bot:latest
-          imagePullPolicy: IfNotPresent
+          # Тег `:latest` перекатывается на месте, поэтому Always — иначе
+          # `rollout restart` поднимет под со старым кешем образа на ноде.
+          # При переходе на пиннинг по digest/sha-тегу можно вернуть IfNotPresent.
+          imagePullPolicy: Always
           envFrom:
             - configMapRef:
                 name: ff-gemini-bot

@@ -152,8 +152,9 @@ docker buildx build \
 нужно либо перейти на новый тег, либо форсировать рестарт:
 
 ```bash
-# Вариант А. Форсировать рестарт пода (pullPolicy должен быть Always
-# или образ — с новым digest/тегом).
+# Вариант А. Форсировать рестарт пода.
+# В нашем deployment.yaml для `:latest` стоит imagePullPolicy: Always,
+# поэтому kubelet перекачает свежий образ с ghcr при создании нового пода.
 kubectl -n ff-gemini-bot rollout restart deployment/ff-gemini-bot
 
 # Вариант Б. Переключиться на конкретный тег (рекомендуется —
@@ -164,6 +165,11 @@ kubectl -n ff-gemini-bot set image deployment/ff-gemini-bot \
 # Проверить статус выката
 kubectl -n ff-gemini-bot rollout status deployment/ff-gemini-bot
 ```
+
+**Подводный камень:** если оставить `imagePullPolicy: IfNotPresent` и пушить
+тот же тег (`:latest`), нода возьмёт локально закешированный слой и
+`rollout restart` поднимет под со старым кодом. Варианты: `Always` (как
+сейчас), либо пиннинг по уникальному тегу `sha-<short>` / по digest.
 
 Если в репозитории изменился сам манифест (`k8s/*.yaml`) — применяй целиком:
 
